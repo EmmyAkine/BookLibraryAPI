@@ -1,9 +1,13 @@
 using BookLibraryAPI.Controllers;
 using BookLibraryAPI.Data;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using Scalar.AspNetCore;
+using System.Text;
 
 namespace BookLibraryAPI {
     public class Program {
@@ -16,11 +20,53 @@ namespace BookLibraryAPI {
             );
 
             //Identity registration
-            builder.Services.AddIdentity<IdentityUser, IdentityRole>()
-                            .AddEntityFrameworkStores<LibraryDbContext>();
-            
+            builder.Services.AddIdentity<IdentityUser, IdentityRole>().AddEntityFrameworkStores<LibraryDbContext>();
+
+            //Controller registration
+            builder.Services.AddControllers();
+
+            //Authentication & Authorization registration
+            builder.Services.AddAuthentication( options => {
+                options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+            })
+            .AddJwtBearer(options => {
+                options.TokenValidationParameters = new TokenValidationParameters {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = builder.Configuration["Jwt:Issuer"],
+                    ValidAudience = builder.Configuration["Jwt:Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+                };
+            });
+            builder.Services.AddAuthorization();
+
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-            builder.Services.AddOpenApi();
+
+            builder.Services.AddOpenApi(options =>
+            {
+                options.AddDocumentTransformer((document, context, cancellationToken) =>
+                {
+                    document.Components ??= new OpenApiComponents();
+                    document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
+                    document.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme {
+                        Type = SecuritySchemeType.Http,
+                        Scheme = "bearer",
+                        BearerFormat = "JWT",
+                        In = ParameterLocation.Header,
+                        Description = "Enter your JWT token to authorize."
+                    };
+
+                    document.Security ??= new List<OpenApiSecurityRequirement>();
+                    document.Security.Add(new OpenApiSecurityRequirement {
+                        [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+                    });
+                    return Task.CompletedTask;
+                });
+            });
             //builder.Services.AddSwaggerGen();
 
             var app = builder.Build();
@@ -36,6 +82,9 @@ namespace BookLibraryAPI {
                 //app.UseSwagger();
                 //app.UseSwaggerUI();
             }
+
+            app.UseAuthentication();
+            app.UseAuthorization();
 
             Todo[] sampleTodos =
             [
@@ -56,6 +105,7 @@ namespace BookLibraryAPI {
                     : TypedResults.NotFound())
                 .WithName("GetTodoById");
 
+            app.MapControllers();
             app.Run();
         }
 
