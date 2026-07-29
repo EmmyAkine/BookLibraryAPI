@@ -1,7 +1,5 @@
-using BookLibraryAPI.Controllers;
 using BookLibraryAPI.Data;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -11,7 +9,7 @@ using System.Text;
 
 namespace BookLibraryAPI {
     public class Program {
-        public static void Main(string[] args) {
+        public static async Task Main(string[] args) {
             var builder = WebApplication.CreateBuilder(args);
 
             //DbContext registration
@@ -45,11 +43,8 @@ namespace BookLibraryAPI {
             builder.Services.AddAuthorization();
 
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-
-            builder.Services.AddOpenApi(options =>
-            {
-                options.AddDocumentTransformer((document, context, cancellationToken) =>
-                {
+            builder.Services.AddOpenApi(options => {
+                options.AddDocumentTransformer((document, context, cancellationToken) => {
                     document.Components ??= new OpenApiComponents();
                     document.Components.SecuritySchemes ??= new Dictionary<string, IOpenApiSecurityScheme>();
                     document.Components.SecuritySchemes["Bearer"] = new OpenApiSecurityScheme {
@@ -67,7 +62,22 @@ namespace BookLibraryAPI {
                     return Task.CompletedTask;
                 });
             });
-            //builder.Services.AddSwaggerGen();
+
+
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen(c => {
+                c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme {
+                    Name = "Authorization",
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "Bearer",
+                    BearerFormat = "JWT",
+                    In = ParameterLocation.Header,
+                    Description = "Enter: {your token}"
+                });
+                c.AddSecurityRequirement((doc) => new OpenApiSecurityRequirement {
+                    [new OpenApiSecuritySchemeReference("Bearer", doc)] = []
+                });
+            });
 
             var app = builder.Build();
 
@@ -76,40 +86,38 @@ namespace BookLibraryAPI {
                 app.MapScalarApiReference(); //Scalar
 
                 //Swagger
-                app.UseSwaggerUI(options => {
+
+                app.UseSwagger();
+                /*app.UseSwaggerUI(options => {
                     options.SwaggerEndpoint("/openapi/v1.json", "My API v1");
-                });
-                //app.UseSwagger();
-                //app.UseSwaggerUI();
+                });*/
+                app.UseSwaggerUI();
             }
+
+            //app.usehtt
 
             app.UseAuthentication();
             app.UseAuthorization();
 
-            Todo[] sampleTodos =
-            [
-                new(1, "Walk the dog"),
-                new(2, "Do the dishes", DateOnly.FromDateTime(DateTime.Now)),
-                new(3, "Do the laundry", DateOnly.FromDateTime(DateTime.Now.AddDays(1))),
-                new(4, "Clean the bathroom"),
-                new(5, "Clean the car", DateOnly.FromDateTime(DateTime.Now.AddDays(2)))
-            ];
-
-            var todosApi = app.MapGroup("/todos");
-            todosApi.MapGet("/", () => sampleTodos)
-                    .WithName("GetTodos");
-
-            todosApi.MapGet("/{id}", Results<Ok<Todo>, NotFound> (int id) =>
-                sampleTodos.FirstOrDefault(a => a.Id == id) is { } todo
-                    ? TypedResults.Ok(todo)
-                    : TypedResults.NotFound())
-                .WithName("GetTodoById");
 
             app.MapControllers();
+
+            using (var scope = app.Services.CreateScope()) {
+                var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+                await SeedRoles(roleManager);
+            }
             app.Run();
+        }
+
+        private static async Task SeedRoles(RoleManager<IdentityRole> roleManager) {
+            if (!await roleManager.RoleExistsAsync("Admin")) {
+                await roleManager.CreateAsync(new IdentityRole("Admin"));
+            }
+            if (!await roleManager.RoleExistsAsync("User")) {
+                await roleManager.CreateAsync(new IdentityRole("User"));
+            }
         }
 
     }
 
-    public record Todo(int Id, string? Title, DateOnly? DueBy = null, bool IsComplete = false);
 }

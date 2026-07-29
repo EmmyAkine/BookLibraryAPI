@@ -22,10 +22,21 @@ namespace BookLibraryAPI.Controllers {
         [HttpPost("register")]
         public async Task<IActionResult> Register(RegisterDto dto) {
             var user = new IdentityUser { UserName = dto.Username, Email = dto.Email };
-            var result = await _userManager.CreateAsync(user, dto.Password);
+            var identityResult = await _userManager.CreateAsync(user, dto.Password);
 
-            if (!result.Succeeded)
-                return BadRequest(result.Errors);
+            if (!identityResult.Succeeded) {
+                return BadRequest(identityResult.Errors);
+            }
+
+            var roleResult = await _userManager.AddToRoleAsync(user, "User");
+            if (!roleResult.Succeeded) {
+                // Roll back the user creation
+                await _userManager.DeleteAsync(user);
+
+                return StatusCode(500, new {
+                    Message = "User registration failed while assigning role."
+                });
+            }
 
             return Ok("User registered.");
         }
